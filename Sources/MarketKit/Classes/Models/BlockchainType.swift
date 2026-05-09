@@ -8,6 +8,7 @@ public enum BlockchainType {
     case monero
     case zano
     case ethereum
+    case quantumChain
     case binanceSmartChain
     case polygon
     case avalanche
@@ -34,6 +35,7 @@ public enum BlockchainType {
         case "monero": self = .monero
         case "zano": self = .zano
         case "ethereum": self = .ethereum
+        case "quantum-chain": self = .quantumChain
         case "binance-smart-chain": self = .binanceSmartChain
         case "polygon-pos": self = .polygon
         case "avalanche": self = .avalanche
@@ -62,6 +64,7 @@ public enum BlockchainType {
         case .monero: return "monero"
         case .zano: return "zano"
         case .ethereum: return "ethereum"
+        case .quantumChain: return "quantum-chain"
         case .binanceSmartChain: return "binance-smart-chain"
         case .polygon: return "polygon-pos"
         case .avalanche: return "avalanche"
