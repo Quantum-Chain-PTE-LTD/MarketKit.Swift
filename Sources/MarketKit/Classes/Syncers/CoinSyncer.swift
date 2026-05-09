@@ -8,19 +8,21 @@ class CoinSyncer {
     private let keyTokensLastSyncTimestamp = "coin-syncer-tokens-last-sync-timestamp"
     private let keyInitialSyncVersion = "coin-syncer-initial-sync-version"
     private let limit = 1000
-    private let currentVersion = 2
+    private let currentVersion = 3
 
     private let storage: CoinStorage
     private let hsProvider: HsProvider
     private let syncerStateStorage: SyncerStateStorage
+    private let supplementalMetadataProvider: SupplementalCoinMetadataProvider?
     private var tasks = Set<AnyTask>()
 
     private let fullCoinsUpdatedSubject = PassthroughSubject<Void, Never>()
 
-    init(storage: CoinStorage, hsProvider: HsProvider, syncerStateStorage: SyncerStateStorage) {
+    init(storage: CoinStorage, hsProvider: HsProvider, syncerStateStorage: SyncerStateStorage, supplementalMetadataProvider: SupplementalCoinMetadataProvider? = nil) {
         self.storage = storage
         self.hsProvider = hsProvider
         self.syncerStateStorage = syncerStateStorage
+        self.supplementalMetadataProvider = supplementalMetadataProvider
     }
 
     private func saveLastSyncTimestamps(coins: Int, blockchains: Int, tokens: Int) {
@@ -29,12 +31,26 @@ class CoinSyncer {
         try? syncerStateStorage.save(value: String(tokens), key: keyTokensLastSyncTimestamp)
     }
 
-    private func handleFetched(coins: [Coin], blockchainRecords: [BlockchainRecord], tokenRecords: [TokenRecord]) {
+    private func handleFetched(metadata: CoinMetadata) {
         do {
-            try storage.update(coins: coins, blockchainRecords: blockchainRecords, tokenRecords: transform(tokenRecords: tokenRecords))
+            try storage.update(coins: metadata.coins, blockchainRecords: metadata.blockchainRecords, tokenRecords: transform(tokenRecords: metadata.tokenRecords))
             fullCoinsUpdatedSubject.send()
         } catch {
             print("Fetched data error: \(error)")
+        }
+    }
+
+    private func metadataWithSupplemental(_ metadata: CoinMetadata) async -> CoinMetadata {
+        guard let supplementalMetadataProvider else {
+            return metadata
+        }
+
+        do {
+            let supplementalMetadata = try await supplementalMetadataProvider.metadata()
+            return metadata.merging(supplementalMetadata)
+        } catch {
+            print("Supplemental metadata fetch error: \(error)")
+            return metadata
         }
     }
 
@@ -142,18 +158,24 @@ extension CoinSyncer {
             tokensOutdated = false
         }
 
-        guard coinsOutdated || blockchainsOutdated || tokensOutdated else {
+        guard coinsOutdated || blockchainsOutdated || tokensOutdated || supplementalMetadataProvider != nil else {
             return
         }
 
         Task { [weak self, hsProvider] in
+            guard let self else {
+                return
+            }
+
             do {
                 async let coins = try hsProvider.allCoins()
                 async let blockchainRecords = try hsProvider.allBlockchainRecords()
                 async let tokenRecords = try hsProvider.allTokenRecords()
 
-                try await self?.handleFetched(coins: coins, blockchainRecords: blockchainRecords, tokenRecords: tokenRecords)
-                self?.saveLastSyncTimestamps(coins: coinsTimestamp, blockchains: blockchainsTimestamp, tokens: tokensTimestamp)
+                let metadata = try await CoinMetadata(coins: coins, blockchainRecords: blockchainRecords, tokenRecords: tokenRecords)
+                let mergedMetadata = await metadataWithSupplemental(metadata)
+                handleFetched(metadata: mergedMetadata)
+                saveLastSyncTimestamps(coins: coinsTimestamp, blockchains: blockchainsTimestamp, tokens: tokensTimestamp)
             } catch {
                 print("Market data fetch error: \(error)")
             }
@@ -166,5 +188,32 @@ extension CoinSyncer {
             blockchainsTimestamp: try? syncerStateStorage.value(key: keyBlockchainsLastSyncTimestamp),
             tokensTimestamp: try? syncerStateStorage.value(key: keyTokensLastSyncTimestamp)
         )
+    }
+}
+
+private extension CoinMetadata {
+    func merging(_ supplemental: CoinMetadata) -> CoinMetadata {
+        CoinMetadata(
+            coins: merge(base: coins, supplemental: supplemental.coins) { $0.uid },
+            blockchainRecords: merge(base: blockchainRecords, supplemental: supplemental.blockchainRecords) { $0.uid },
+            tokenRecords: merge(base: tokenRecords, supplemental: supplemental.tokenRecords) { tokenRecord in
+                [tokenRecord.coinUid, tokenRecord.blockchainUid, tokenRecord.type, tokenRecord.reference?.lowercased() ?? ""].joined(separator: "|")
+            }
+        )
+    }
+
+    private func merge<T, K: Hashable>(base: [T], supplemental: [T], keySelector: (T) -> K) -> [T] {
+        var order = [K]()
+        var merged = [K: T]()
+
+        for item in base + supplemental {
+            let key = keySelector(item)
+            if merged[key] == nil {
+                order.append(key)
+            }
+            merged[key] = item
+        }
+
+        return order.compactMap { merged[$0] }
     }
 }
