@@ -7,11 +7,11 @@ protocol ICoinPriceCoinUidDataSource: AnyObject {
 class CoinPriceSchedulerProvider {
     private let currencyCode: String
     private let manager: CoinPriceManager
-    private let provider: HsProvider
+    private let provider: CoinPriceProvider
 
     weak var dataSource: ICoinPriceCoinUidDataSource?
 
-    init(manager: CoinPriceManager, provider: HsProvider, currencyCode: String) {
+    init(manager: CoinPriceManager, provider: CoinPriceProvider, currencyCode: String) {
         self.manager = manager
         self.provider = provider
         self.currencyCode = currencyCode
