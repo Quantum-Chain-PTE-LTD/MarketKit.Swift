@@ -5,7 +5,10 @@ class CachedQcCoinMetadataProvider: SupplementalCoinMetadataProvider {
     private let assetListURL: URL?
     private let fallbackTtlSeconds: TimeInterval
 
-    init(cacheDirectoryURL: URL, assetListUrl: String, fallbackTtlSeconds: TimeInterval = QcProviderDefaults.assetListCacheTtlSeconds) {
+    init(
+        cacheDirectoryURL: URL, assetListUrl: String,
+        fallbackTtlSeconds: TimeInterval = QcProviderDefaults.assetListCacheTtlSeconds
+    ) {
         cacheURL = cacheDirectoryURL.appendingPathComponent("qc-asset-list-cache.json")
         assetListURL = URL(string: assetListUrl)!
         self.fallbackTtlSeconds = fallbackTtlSeconds
@@ -51,13 +54,13 @@ class CachedQcCoinMetadataProvider: SupplementalCoinMetadataProvider {
 
     private func writeCache(_ cachedAssetList: CachedQcAssetList) {
         do {
-            try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(cachedAssetList)
             try data.write(to: cacheURL, options: .atomic)
         } catch {}
     }
 }
-
 private struct CachedQcAssetList: Codable {
     let fetchedAt: TimeInterval
     let assetList: QcAssetList
@@ -67,7 +70,6 @@ private struct CachedQcAssetList: Codable {
         return now - fetchedAt >= ttl
     }
 }
-
 private struct QcAssetList: Codable {
     let version: Int?
     let ttlSeconds: TimeInterval?
@@ -83,7 +85,6 @@ private struct QcAssetList: Codable {
         )
     }
 }
-
 private struct QcAssetCoin: Codable {
     let uid: String?
     let id: String?
@@ -99,7 +100,8 @@ private struct QcAssetCoin: Codable {
         id = try container.decodeString(forKeys: "id")
         name = try container.decodeString(forKeys: "name")
         code = try container.decodeString(forKeys: "code")
-        marketCapRank = try container.decodeIfPresent(Int.self, forKeys: "market_cap_rank", "marketCapRank")
+        marketCapRank = try container.decodeIfPresent(
+            Int.self, forKeys: "market_cap_rank", "marketCapRank")
         coinGeckoId = try container.decodeString(forKeys: "coingecko_id", "coinGeckoId")
         image = try container.decodeString(forKeys: "image", "icon")
     }
@@ -119,7 +121,6 @@ private struct QcAssetCoin: Codable {
         )
     }
 }
-
 private struct QcAssetBlockchain: Codable {
     let uid: String?
     let name: String?
@@ -133,7 +134,6 @@ private struct QcAssetBlockchain: Codable {
         return BlockchainRecord(uid: uid, name: name, explorerUrl: url.cleaned)
     }
 }
-
 private struct QcAssetToken: Codable {
     let coinUid: String?
     let blockchainUid: String?
@@ -151,7 +151,9 @@ private struct QcAssetToken: Codable {
     }
 
     var tokenRecord: TokenRecord? {
-        guard let coinUid = coinUid.cleaned, let blockchainUid = blockchainUid.cleaned, let type = type.cleaned?.lowercased() else {
+        guard let coinUid = coinUid.cleaned, let blockchainUid = blockchainUid.cleaned,
+            let type = type.cleaned?.lowercased()
+        else {
             return nil
         }
 
@@ -165,10 +167,11 @@ private struct QcAssetToken: Codable {
             reference = address
         }
 
-        return TokenRecord(coinUid: coinUid, blockchainUid: blockchainUid, type: type, decimals: decimals, reference: reference)
+        return TokenRecord(
+            coinUid: coinUid, blockchainUid: blockchainUid, type: type, decimals: decimals,
+            reference: reference)
     }
 }
-
 private struct AnyCodingKey: CodingKey {
     let stringValue: String
     let intValue: Int?
@@ -183,9 +186,16 @@ private struct AnyCodingKey: CodingKey {
         self.intValue = intValue
     }
 }
+extension KeyedDecodingContainer where K == AnyCodingKey {
+    fileprivate func decodeIfPresent<T: Decodable>(_ type: T.Type, forKeys keys: String...) throws
+        -> T?
+    {
+        try decodeIfPresent(type, forKeys: keys)
+    }
 
-private extension KeyedDecodingContainer where K == AnyCodingKey {
-    func decodeIfPresent<T: Decodable>(_ type: T.Type, forKeys keys: String...) throws -> T? {
+    fileprivate func decodeIfPresent<T: Decodable>(_ type: T.Type, forKeys keys: [String]) throws
+        -> T?
+    {
         for key in keys {
             guard let codingKey = AnyCodingKey(stringValue: key), contains(codingKey) else {
                 continue
@@ -199,18 +209,17 @@ private extension KeyedDecodingContainer where K == AnyCodingKey {
         return nil
     }
 
-    func decodeString(forKeys keys: String...) throws -> String? {
+    fileprivate func decodeString(forKeys keys: String...) throws -> String? {
         try decodeIfPresent(String.self, forKeys: keys)
     }
 }
-
-private extension Optional where Wrapped == String {
-    var cleaned: String? {
-        guard let value = self?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+extension Optional where Wrapped == String {
+    fileprivate var cleaned: String? {
+        guard let value = self?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty
+        else {
             return nil
         }
 
         return value
     }
 }
-
