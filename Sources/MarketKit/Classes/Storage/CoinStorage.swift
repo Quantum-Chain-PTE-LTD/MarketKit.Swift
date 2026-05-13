@@ -2,6 +2,8 @@ import GRDB
 
 class CoinStorage {
     private let dbPool: DatabasePool
+    private let sqliteMaxVariableNumber = 999
+    private let tokenQueryChunkSize = 333
 
     init(dbPool: DatabasePool) throws {
         self.dbPool = dbPool
@@ -134,8 +136,12 @@ extension CoinStorage {
     }
 
     func coins(uids: [String]) throws -> [Coin] {
-        try dbPool.read { db in
-            try Coin.filter(uids.contains(Coin.Columns.uid)).fetchAll(db)
+        guard !uids.isEmpty else { return [] }
+
+        return try dbPool.read { db in
+            try uids.chunked(into: sqliteMaxVariableNumber).flatMap { chunk in
+                try Coin.filter(chunk.contains(Coin.Columns.uid)).fetchAll(db)
+            }
         }
     }
 
@@ -198,12 +204,16 @@ extension CoinStorage {
     }
 
     func coinTokenRecords(coinUids: [String]) throws -> [CoinTokensRecord] {
-        try dbPool.read { db in
-            let request = Coin
-                .including(all: Coin.tokens.including(required: TokenRecord.blockchain))
-                .filter(coinUids.contains(Coin.Columns.uid))
+        guard !coinUids.isEmpty else { return [] }
 
-            return try CoinTokensRecord.fetchAll(db, request)
+        return try dbPool.read { db in
+            try coinUids.chunked(into: sqliteMaxVariableNumber).flatMap { chunk in
+                let request = Coin
+                    .including(all: Coin.tokens.including(required: TokenRecord.blockchain))
+                    .filter(chunk.contains(Coin.Columns.uid))
+
+                return try CoinTokensRecord.fetchAll(db, request)
+            }
         }
     }
 
@@ -219,13 +229,17 @@ extension CoinStorage {
     }
 
     func tokenInfoRecords(queries: [TokenQuery]) throws -> [TokenInfoRecord] {
-        try dbPool.read { db in
-            let request = TokenRecord
-                .including(required: TokenRecord.coin)
-                .including(required: TokenRecord.blockchain)
-                .filter(queries.map { filter(tokenQuery: $0) }.joined(operator: .or))
+        guard !queries.isEmpty else { return [] }
 
-            return try TokenInfoRecord.fetchAll(db, request)
+        return try dbPool.read { db in
+            try queries.chunked(into: tokenQueryChunkSize).flatMap { chunk in
+                let request = TokenRecord
+                    .including(required: TokenRecord.coin)
+                    .including(required: TokenRecord.blockchain)
+                    .filter(chunk.map { filter(tokenQuery: $0) }.joined(operator: .or))
+
+                return try TokenInfoRecord.fetchAll(db, request)
+            }
         }
     }
 
@@ -353,5 +367,14 @@ struct TokenInfoRecord: FetchableRecord, Decodable {
             type: tokenType,
             decimals: tokenRecord.decimals ?? 0
         )
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return isEmpty ? [] : [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }
